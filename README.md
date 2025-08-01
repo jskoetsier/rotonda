@@ -6,15 +6,20 @@
 The composable, programmable BGP Engine
 
 The current version of Rotonda allows you to open BGP and BMP sessions and
-collect incoming routes from many peers into a in-memory database, modeled as
-a Routing Information Base (RIB). It also supports importing routes from MRT
-files into this database. Conditions for accepting incoming routes and sending
-messages to log files or a MQTT stream can be created using filters with the
-`Roto` programming language. The RIB can be queried through an HTTP/JSON
-API.
+collect incoming routes from many peers into a database, modeled as
+a Routing Information Base (RIB). It supports multiple storage backends including
+in-memory, on-disk, and hybrid storage configurations. Routes can be imported from
+MRT files, Kafka streams, and other data sources. Conditions for accepting incoming
+routes and sending messages to log files or MQTT streams can be created using filters
+with the `Roto` programming language, which can access external datasets for enhanced
+routing decisions. The RIB can be queried through an HTTP/JSON API.
 
-Future versions of Rotonda will support an on-disk database, using external
-datasets in filters, reading routes from Kafka streams, and more.
+Key features include:
+- **Multiple Storage Backends**: In-memory, on-disk, and hybrid storage with compression and caching
+- **Kafka Integration**: Native support for consuming BGP/BMP data from Kafka streams
+- **External Data Sources**: Filters can access HTTP APIs, databases, files, and Redis for enhanced routing decisions
+- **Advanced Filtering**: Roto scripts with external data integration for intelligent route processing
+- **Docker Support**: Complete containerized deployment with monitoring and scaling capabilities
 
 Read the [documentation](https://rotonda.docs.nlnetlabs.nl) to find out how to
 install and use Rotonda.

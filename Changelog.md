@@ -10,6 +10,16 @@ Breaking changes
 
 New
 
+* **On-Disk Database Support**: Rotonda now supports persistent storage with multiple storage backends including memory-only, disk-only, and hybrid configurations. Features include compression, configurable sync modes, background compaction, intelligent caching, and automatic data migration between storage tiers.
+
+* **Kafka Stream Input**: Native support for consuming BGP/BMP data from Kafka streams. The new `kafka-in` unit type supports multiple message formats (JSON, MRT, BGP UPDATE, custom), consumer groups, retry logic with exponential backoff, health monitoring, and automatic offset management.
+
+* **External Data Sources in Filters**: Roto filters can now access external data sources for enhanced routing decisions. Supported data sources include HTTP/HTTPS APIs with authentication, file-based sources (JSON, YAML, TOML, CSV) with file watching, databases (PostgreSQL, MySQL) with connection pooling, Redis operations, and cross-RIB data queries. All external data sources support automatic refresh and intelligent caching.
+
+* **Enhanced Docker Support**: Complete containerized deployment with Docker Compose profiles for different deployment scenarios including basic, Kafka-enabled, MQTT, and full monitoring stacks. Includes pre-configured Prometheus metrics collection and Grafana dashboards.
+
+* **Advanced Configuration Examples**: New comprehensive configuration examples demonstrating all new features, including `rotonda-advanced.conf` and `filters-advanced.roto` with real-world usage patterns.
+
 
 Bug fixes
 
@@ -18,6 +28,11 @@ Known issues
 
 
 Other changes
+
+* Storage architecture redesigned to support multiple backends with intelligent tiering
+* Roto runtime extended with external data access capabilities
+* Unit system enhanced to support new input types and storage configurations
+* Documentation expanded with comprehensive feature guides and examples
 
 
 Acknowledgements

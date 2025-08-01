@@ -32,7 +32,7 @@ use tokio::sync::oneshot;
 use uuid::Uuid;
 
 use super::{
-    http::PrefixesApi, metrics::RibUnitMetrics, rib::{Rib, RouteExtra, StoreInsertionEffect}, rpki::{RovStatus, RovStatusUpdate, RtrCache}, status_reporter::RibUnitStatusReporter
+    http::PrefixesApi, metrics::RibUnitMetrics, rib::{Rib, RouteExtra, StoreInsertionEffect}, rpki::{RovStatus, RovStatusUpdate, RtrCache}, status_reporter::RibUnitStatusReporter, storage::StorageConfig
 };
 use super::{
     rib::StoreInsertionReport, statistics::RibMergeUpdateStatistics,
@@ -198,6 +198,10 @@ pub struct RibUnit {
     /// Virtual RIB upstream physical RIB. Only used when rib_type is Virtual.
     #[serde(default)]
     pub vrib_upstream: Option<Link>,
+
+    /// Storage configuration for this RIB unit
+    #[serde(default)]
+    pub storage: StorageConfig,
 }
 
 impl RibUnit {

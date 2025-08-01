@@ -1,0 +1,257 @@
+// Advanced Roto Filter Script
+// Demonstrates external data usage, on-disk storage, and Kafka integration
+
+import { 
+    Prefix, 
+    Asn, 
+    Community, 
+    BgpPath,
+    ExternalData,
+    RpkiStatus 
+};
+
+// External data sources (configured in rotonda-advanced.conf)
+external rpki_validator: ExternalData = "rpki-validator";
+external bogon_prefixes: ExternalData = "bogon-prefixes";
+external customer_prefixes: ExternalData = "customer-prefixes";
+external peer_status: ExternalData = "peer-status";
+
+// Enhanced route filter with external data integration
+filter enhanced_route_filter for route: Route {
+    // Get route attributes
+    let prefix = route.prefix();
+    let origin_asn = route.origin_asn();
+    let peer_asn = route.peer_asn();
+    let peer_ip = route.peer_ip();
+    let communities = route.communities();
+    
+    // Log incoming route
+    log("Processing route: {} from AS{} via peer AS{} ({})", 
+        prefix, origin_asn, peer_asn, peer_ip);
+    
+    // Check if peer is active using external data
+    if let Some(peer_data) = peer_status.get_object(peer_ip.to_string()) {
+        if let Some(status) = peer_data.get_string("status") {
+            if status == "inactive" {
+                log("Rejecting route from inactive peer: {}", peer_ip);
+                return reject;
+            }
+        }
+    }
+    
+    // Check against bogon prefixes
+    if let Some(bogon_list) = bogon_prefixes.get_array("prefixes") {
+        for bogon in bogon_list {
+            if let Some(bogon_prefix) = bogon.as_string() {
+                if prefix.is_more_specific_of(Prefix::from_string(bogon_prefix)) {
+                    log("Rejecting bogon prefix: {}", prefix);
+                    route.add_community(Community::new(65000, 666)); // Mark as bogon
+                    return reject;
+                }
+            }
+        }
+    }
+    
+    // Enhanced RPKI validation using external validator
+    if let Some(rpki_data) = rpki_validator.get_object(format!("{}:{}", prefix, origin_asn)) {
+        if let Some(validity) = rpki_data.get_string("validity") {
+            match validity {
+                "valid" => {
+                    route.set_rpki_status(RpkiStatus::Valid);
+                    route.add_community(Community::new(65000, 1)); // RPKI Valid
+                    log("RPKI Valid: {} from AS{}", prefix, origin_asn);
+                }
+                "invalid" => {
+                    route.set_rpki_status(RpkiStatus::Invalid);
+                    route.add_community(Community::new(65000, 2)); // RPKI Invalid
+                    log("RPKI Invalid: {} from AS{}", prefix, origin_asn);
+                    
+                    // Option to reject invalid routes
+                    if route.has_community(Community::new(65000, 999)) {
+                        log("Rejecting RPKI invalid route: {}", prefix);
+                        return reject;
+                    }
+                }
+                "not-found" => {
+                    route.set_rpki_status(RpkiStatus::NotFound);
+                    route.add_community(Community::new(65000, 3)); // RPKI Not Found
+                }
+                _ => {
+                    log("Unknown RPKI status: {}", validity);
+                }
+            }
+        }
+    }
+    
+    // Customer prefix classification
+    if let Some(customer_data) = customer_prefixes.get_array("customers") {
+        for customer in customer_data {
+            if let Some(customer_obj) = customer.as_object() {
+                if let Some(cust_prefix) = customer_obj.get_string("prefix") {
+                    if prefix.is_more_specific_of(Prefix::from_string(cust_prefix)) {
+                        if let Some(customer_id) = customer_obj.get_number("customer_id") {
+                            if let Some(tier) = customer_obj.get_string("tier") {
+                                // Add customer-specific communities
+                                route.add_community(Community::new(65000, 100 + customer_id as u16));
+                                
+                                match tier {
+                                    "gold" => {
+                                        route.add_community(Community::new(65000, 201));
+                                        route.set_local_pref(200);
+                                    }
+                                    "silver" => {
+                                        route.add_community(Community::new(65000, 202));
+                                        route.set_local_pref(150);
+                                    }
+                                    "bronze" => {
+                                        route.add_community(Community::new(65000, 203));
+                                        route.set_local_pref(100);
+                                    }
+                                    _ => {}
+                                }
+                                
+                                log("Customer route: {} (ID: {}, Tier: {})", 
+                                    prefix, customer_id, tier);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // AS path analysis
+    let as_path = route.as_path();
+    let path_length = as_path.length();
+    
+    // Reject overly long AS paths
+    if path_length > 10 {
+        log("Rejecting route with long AS path: {} (length: {})", prefix, path_length);
+        return reject;
+    }
+    
+    // Detect and mark AS path prepending
+    let unique_asns = as_path.unique_asns();
+    if path_length > unique_asns.length() * 2 {
+        route.add_community(Community::new(65000, 301)); // Heavy prepending
+        log("Heavy AS path prepending detected: {}", prefix);
+    } else if path_length > unique_asns.length() {
+        route.add_community(Community::new(65000, 302)); // Light prepending
+    }
+    
+    // Geographic tagging based on origin ASN
+    match origin_asn {
+        // North America
+        asn if asn >= 1 && asn <= 23455 => {
+            route.add_community(Community::new(65000, 401)); // North America
+        }
+        // Europe
+        asn if asn >= 196608 && asn <= 262143 => {
+            route.add_community(Community::new(65000, 402)); // Europe
+        }
+        // Asia-Pacific
+        asn if asn >= 131072 && asn <= 196607 => {
+            route.add_community(Community::new(65000, 403)); // Asia-Pacific
+        }
+        _ => {
+            route.add_community(Community::new(65000, 404)); // Other/Unknown
+        }
+    }
+    
+    // Prefix length analysis
+    let prefix_len = prefix.length();
+    if prefix.is_ipv4() {
+        if prefix_len > 24 {
+            route.add_community(Community::new(65000, 501)); // IPv4 more specific than /24
+            if prefix_len > 28 {
+                log("Very specific IPv4 prefix: {}", prefix);
+                route.add_community(Community::new(65000, 502)); // Very specific
+            }
+        }
+    } else if prefix.is_ipv6() {
+        if prefix_len > 48 {
+            route.add_community(Community::new(65000, 511)); // IPv6 more specific than /48
+            if prefix_len > 56 {
+                log("Very specific IPv6 prefix: {}", prefix);
+                route.add_community(Community::new(65000, 512)); // Very specific
+            }
+        }
+    }
+    
+    // Time-based processing
+    let current_time = now();
+    let hour = current_time.hour();
+    
+    // Mark routes received during peak hours
+    if hour >= 8 && hour <= 18 {
+        route.add_community(Community::new(65000, 601)); // Peak hours
+    } else {
+        route.add_community(Community::new(65000, 602)); // Off-peak hours
+    }
+    
+    // Final logging and acceptance
+    log("Accepting route: {} from AS{} with {} communities", 
+        prefix, origin_asn, route.communities().length());
+    
+    return accept;
+}
+
+// VRP update filter for RPKI cache updates
+filter vrp_update for vrp: VrpUpdate {
+    let prefix = vrp.prefix();
+    let asn = vrp.asn();
+    let action = vrp.action();
+    
+    log("VRP update: {} {} for AS{}", action, prefix, asn);
+    
+    // Log significant VRP changes
+    if prefix.length() <= 16 && prefix.is_ipv4() {
+        log("Important VRP update for large IPv4 prefix: {} AS{}", prefix, asn);
+    } else if prefix.length() <= 32 && prefix.is_ipv6() {
+        log("Important VRP update for large IPv6 prefix: {} AS{}", prefix, asn);
+    }
+    
+    return accept;
+}
+
+// ROV status update filter
+filter rov_status_update for update: RovStatusUpdate {
+    let prefix = update.prefix();
+    let old_status = update.old_status();
+    let new_status = update.new_status();
+    let origin_asn = update.origin_asn();
+    
+    if old_status != new_status {
+        log("ROV status change for {}: {} -> {} (AS{})", 
+            prefix, old_status, new_status, origin_asn);
+        
+        // Alert on transitions to Invalid
+        if new_status == RpkiStatus::Invalid {
+            log("ALERT: Route became RPKI Invalid: {} AS{}", prefix, origin_asn);
+        }
+    }
+}
+
+// Pre-filter for incoming routes (before RIB insertion)
+filter rib_in_pre for route: MutRoute {
+    // Basic sanity checks
+    let prefix = route.prefix();
+    
+    // Reject default routes from peers (example policy)
+    if prefix.is_default() {
+        log("Rejecting default route from peer");
+        return reject;
+    }
+    
+    // Reject private AS numbers in AS path from external peers
+    let as_path = route.as_path();
+    for asn in as_path.asns() {
+        if asn.is_private() {
+            log("Rejecting route with private ASN {} in path", asn);
+            return reject;
+        }
+    }
+    
+    return accept;
+}
