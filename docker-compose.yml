@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  rotonda:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODE: build
+        BASE_IMG: alpine:edge
+        CARGO_ARGS: ""
+    container_name: rotonda
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # HTTP API and metrics
+      - "11019:11019" # BMP input
+      - "11179:11179" # BGP input (if enabled)
+    volumes:
+      - ./etc/rotonda.conf:/etc/rotonda/rotonda.conf:ro
+      - ./test-data:/etc/rotonda/test-data:ro
+      - rotonda-logs:/var/log/rotonda
+    environment:
+      - RUST_LOG=info
+      - ROTONDA_LOG_LEVEL=info
+    networks:
+      - rotonda-net
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional MQTT broker for testing and development
+  mqtt-broker:
+    image: eclipse-mosquitto:2.0
+    container_name: rotonda-mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./docker/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt-data:/mosquitto/data
+      - mqtt-logs:/mosquitto/log
+    networks:
+      - rotonda-net
+    profiles:
+      - mqtt
+      - full
+
+  # Optional Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: rotonda-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - rotonda-net
+    profiles:
+      - monitoring
+      - full
+
+  # Optional Grafana for metrics visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: rotonda-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - rotonda-net
+    profiles:
+      - monitoring
+      - full
+    depends_on:
+      - prometheus
+
+networks:
+  rotonda-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  rotonda-logs:
+  mqtt-data:
+  mqtt-logs:
+  prometheus-data:
+  grafana-data:
